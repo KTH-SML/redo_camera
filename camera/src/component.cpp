@@ -105,7 +105,7 @@ void PredictionLine::update(const float v, const float a, float str_whe_phi_remo
         static_cast<float>(ORIGIN_X + y * PIXELS_PER_METER),
         static_cast<float>(ORIGIN_Y - x * PIXELS_PER_METER)
     };
-    vector<Point2f> lines = create_line(origin, theta, PIXELS_PER_METER, 50);
+    vector<Point2f> lines = create_radial_line(origin, theta, PIXELS_PER_METER, 50);
     // KBM Model-----------------------------------------------------------------------------------
     const auto cos_theta = static_cast<float>(cos(theta));
     const auto sin_theta = static_cast<float>(sin(theta));

@@ -13,8 +13,9 @@
  * @param logger Path to the log file for sensor data (optional)
  * @param is_hmi Flag to indicate if HMI data should be processed
  * @param is_p_hmi Flag to indicate if P-HMI data should be processed
+ * @param is_surroundings_hmi Flag to indicate if surroundings(othre traffic participants) HMI data should be processed (Not supported yet)
  * @param scale Scale factor for the output video (Not supported yet)
  */
-void capture_frames(const char* video_device, const std::string& ip, int port, bool &signal, int fps, int delay_ms, const char* logger, bool is_hmi, bool is_p_hmi, int scale);
+void capture_frames(const char* video_device, const std::string& ip, int port, bool &signal, int fps, int delay_ms, const char* logger, bool is_hmi, bool is_p_hmi, int is_surroundings_hmi, int scale);
 
 #endif // ZED_STREAM_H

@@ -40,7 +40,7 @@ unsigned char *yuyv = nullptr;
 std::thread sensor_thread;
 std::thread sensor_thread_2;
 
-void capture_frames(const char *video_device, const std::string &ip, int port, bool &signal, int fps, int delay_ms, const char *logger, bool is_hmi, bool is_p_hmi, int scale)
+void capture_frames(const char *video_device, const std::string &ip, int port, bool &signal, int fps, int delay_ms, const char *logger, bool is_hmi, bool is_p_hmi, int is_surroundings_hmi, int scale)
 {
     // Open the virtual V4L2 device
     video_fd = open(video_device, O_WRONLY);
@@ -212,6 +212,11 @@ void capture_frames(const char *video_device, const std::string &ip, int port, b
                 sensor_thread_2 = std::thread(receive_data_loop, bridge_2, buffer_2, BUFFER_SIZE, std::ref(bufferMutex_2),
                                               std::ref(thread_signal), std::ref(is_thread_running_2));
                 is_sensor_init = true;
+            }
+            if (is_surroundings_hmi)
+            {
+                // Not supported yet
+                
             }
             if (is_hmi || is_p_hmi)
             {

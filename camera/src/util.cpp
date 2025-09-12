@@ -13,7 +13,7 @@ void operator+=(Mat& lhs, const vector<Point2f>& rhs)
     }
 }
 
-vector<Point2f> create_line(Point2f start, Point2f end, int num)
+vector<Point2f> create_line_between_points(Point2f start, Point2f end, int num)
 {
     vector<Point2f> line;
     line.reserve(num);
@@ -24,7 +24,7 @@ vector<Point2f> create_line(Point2f start, Point2f end, int num)
     return line;
 }
 
-vector<Point2f> create_line(Point2f center, double angle, double length, int half_num)
+vector<Point2f> create_radial_line(Point2f center, double angle, double length, int half_num)
 {
     vector<Point2f> line;
     line.reserve(half_num * 2);

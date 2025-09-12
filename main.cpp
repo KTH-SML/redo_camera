@@ -22,10 +22,10 @@
 
 bool capture_signal = false;
 
-void run_zed_stream(const char *videoDevice, const char *ip, int port, int fps, int delay_ms, const char *logger, const bool is_hmi, const bool is_p_hmi, const int scale)
+void run_zed_stream(const char *videoDevice, const char *ip, int port, int fps, int delay_ms, const char *logger, const bool is_hmi, const bool is_p_hmi, const bool is_surroundings_hmi, const int scale)
 {
     std::cout << "[main] Starting to capture frames from the ZED camera..." << std::endl;
-    capture_frames(videoDevice, ip, port, capture_signal, fps, delay_ms, logger, is_hmi, is_p_hmi, scale);
+    capture_frames(videoDevice, ip, port, capture_signal, fps, delay_ms, logger, is_hmi, is_p_hmi, is_surroundings_hmi, scale);
     std::cout << "[main] Capture process finished" << std::endl;
 }
 
@@ -214,6 +214,7 @@ int main(int argc, char *argv[])
 
     bool is_hmi;
     bool is_p_hmi;
+    bool is_surroundings_hmi;
     if (args.find("-hmi") != args.end())
     {
         is_hmi = true;
@@ -236,6 +237,17 @@ int main(int argc, char *argv[])
         std::cout << "[main] P-HMI mode disabled" << std::endl;
     }
 
+    if (args.find("surroundings_hmi") != args.end())
+    {
+        is_surroundings_hmi = true;
+        std::cout << "[main] Surroundings HMI mode enabled" << std::endl;
+    }
+    else
+    {
+        is_surroundings_hmi = false;
+        std::cout << "[main] Surroundings HMI mode disabled" << std::endl;
+    }
+
     int scale;
     if (args.find("-scale") != args.end())
     {
@@ -250,6 +262,6 @@ int main(int argc, char *argv[])
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);
 
-    run_zed_stream(videoDevice, ip, port, fps, delay_ms, logger, is_hmi, is_p_hmi, scale);
+    run_zed_stream(videoDevice, ip, port, fps, delay_ms, logger, is_hmi, is_p_hmi, is_surroundings_hmi,scale);
     return 0;
 }
