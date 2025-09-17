@@ -31,7 +31,9 @@ class UDPBridgeNode(Node):
         self.steering_angle = 0.0
         self.velocity_x = 0.0
         
-        
+        self.override_remote = False
+        self.steering_angle_remote = 0.0
+        self.steering_angle_local = 0.0
         
         self.remote_override_sub = self.create_subscription(
             Bool,
@@ -46,6 +48,20 @@ class UDPBridgeNode(Node):
             self.odometry_callback,
             10
         )
+
+        self.remote_steering_sub = self.create_subscription(
+            Int8,
+            '/lli/remote/steering',
+            self.remote_steering_callback,
+            qos_profile
+        )
+
+        self.local_steering_sub = self.create_subscription(
+            Int8,
+            '/lli/ctrl/steering',
+            self.local_steering_callback,
+            qos_profile
+        )
         
         self.timer = self.create_timer(0.1, self.send_udp_data)
         
@@ -53,23 +69,8 @@ class UDPBridgeNode(Node):
         self.get_logger().info(f'Steering coefficient: {self.steering_coeff}')
 
     def remote_override_callback(self, msg):
-        if msg.data == True:
-            self.steering_sub = self.create_subscription(
-                Int8,
-                '/lli/remote/steering',
-                self.steering_callback,
-                qos_profile
-            )
-            self.get_logger().debug('Switched to remote steering control')
-        else:
-            self.steering_sub = self.create_subscription(
-                Int8,
-                '/lli/ctrl/steering',
-                self.steering_callback,
-                qos_profile
-            )
-            self.get_logger().debug('Switched to local steering control')
-
+        self.override_remote = bool(msg.data)
+        self.get_logger().info(f'Remote override set to: {self.override_remote}')
     
     def steering_callback(self, msg):
         self.steering_angle = float(msg.data) * self.steering_coeff
@@ -77,12 +78,23 @@ class UDPBridgeNode(Node):
         self.steering_angle = max(-math.pi/4, min(math.pi/4, self.steering_angle))
         
         self.get_logger().debug(f'Received steering: {msg.data} -> {self.steering_angle:.3f} rad')
+
+    def remote_steering_callback(self, msg):
+        ang = float(msg.data) * self.steering_coeff
+        self.steering_angle_remote = max(-math.pi/4, min(math.pi/4, ang))
+        self.get_logger().debug(f'Received steering: {msg.data} -> {self.steering_angle:.3f} rad')
+
+    def local_steering_callback(self, msg):
+        ang = float(msg.data) * self.steering_coeff
+        self.steering_angle_local = max(-math.pi/4, min(math.pi/4, ang))
+        self.get_logger().debug(f'Received steering: {msg.data} -> {self.steering_angle:.3f} rad')
     
     def odometry_callback(self, msg):
         self.velocity_x = msg.twist.twist.linear.x
         self.get_logger().debug(f'Received velocity_x: {self.velocity_x:.3f} m/s')
     
     def send_udp_data(self):
+        self.steering_angle = self.steering_angle_remote if self.override_remote else self.steering_angle_local
         try:
             data = struct.pack('<ff', self.steering_angle, self.velocity_x)
             
