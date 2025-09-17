@@ -71,13 +71,6 @@ class UDPBridgeNode(Node):
     def remote_override_callback(self, msg):
         self.override_remote = bool(msg.data)
         self.get_logger().info(f'Remote override set to: {self.override_remote}')
-    
-    def steering_callback(self, msg):
-        self.steering_angle = float(msg.data) * self.steering_coeff
-        
-        self.steering_angle = max(-math.pi/4, min(math.pi/4, self.steering_angle))
-        
-        self.get_logger().debug(f'Received steering: {msg.data} -> {self.steering_angle:.3f} rad')
 
     def remote_steering_callback(self, msg):
         ang = float(msg.data) * self.steering_coeff
