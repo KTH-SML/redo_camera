@@ -17,6 +17,7 @@ CMDS=(
 
 USE_HMI=(0 1 0 0)
 USE_P_HMI=(0 1 0 0)
+USE_SURROUNDINGS_HMI=(0 1 0 0)
 USE_DELAY=(1 1 0 0)
 
 PID_DIR="./pids"
@@ -99,6 +100,7 @@ start() {
   
   local want_hmi=0
   local want_p_hmi=0
+  local want_surroundings_hmi=0
   local delay_val=""
 
   # Parse only the three allowed parameters
@@ -108,6 +110,8 @@ start() {
         want_hmi=1; shift ;;
       -p_hmi)
         want_p_hmi=1; shift ;;
+      -surroundings_hmi)
+        want_surroundings_hmi=1; shift ;;
       -delay)
         if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
           delay_val="$2"; shift 2
@@ -124,8 +128,8 @@ start() {
   done
 
   # Length consistency check
-  if [[ ${#CMDS[@]} -ne ${#USE_HMI[@]} || ${#CMDS[@]} -ne ${#USE_P_HMI[@]} || ${#CMDS[@]} -ne ${#USE_DELAY[@]} ]]; then
-    echo "Configuration error: CMDS / USE_HMI / USE_P_HMI / USE_DELAY must have the same length"
+  if [[ ${#CMDS[@]} -ne ${#USE_HMI[@]} || ${#CMDS[@]} -ne ${#USE_P_HMI[@]} || ${#CMDS[@]} -ne ${#USE_SURROUNDINGS_HMI[@]} || ${#CMDS[@]} -ne ${#USE_DELAY[@]} ]]; then
+    echo "Configuration error: CMDS / USE_HMI / USE_P_HMI / USE_SURROUNDINGS_HMI / USE_DELAY must have the same length"
     exit 1
   fi
 
@@ -139,6 +143,9 @@ start() {
     fi
     if (( want_p_hmi == 1 )) && (( ${USE_P_HMI[$i]} == 1 )); then
       full_cmd+=" -p_hmi"
+    fi
+    if (( want_surroundings_hmi == 1 )) && (( ${USE_SURROUNDINGS_HMI[$i]} == 1 )); then
+      full_cmd+=" -surroundings_hmi"
     fi
     if [[ -n "$delay_val" ]] && (( ${USE_DELAY[$i]} == 1 )); then
       full_cmd+=" -delay $delay_val"
@@ -236,7 +243,7 @@ case "${1:-}" in
   restart) shift; stop; sleep 1; start "$@" ;;    # restart can also take -hmi / -p_hmi / -delay
   status)  status ;;
   *)
-    echo "Usage: $0 {start|stop|restart|status} [ -hmi ] [ -p_hmi ] [ -delay <num_ms> ]"
+    echo "Usage: $0 {start|stop|restart|status} [ -hmi ] [ -p_hmi ] [ -surroundings_hmi ] [ -delay <num_ms> ]"
     echo "Example:"
     echo "  $0 start -hmi -p_hmi -delay 150"
     echo "  $0 restart -p_hmi -delay 120"

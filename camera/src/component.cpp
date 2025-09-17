@@ -125,6 +125,31 @@ void PredictionLine::update(const float v, const float a, float str_whe_phi_remo
     project(lines);
 }
 
+PredictionSurroundingsLine::PredictionSurroundingsLine(const string& fisheye_config, const string& homography_config, const int width,
+                               const int height):
+    LineComponent(fisheye_config, homography_config, width, height)
+{
+}
+
+void PredictionSurroundingsLine::update(const float latency)
+{
+    const double x = 0.0;
+    const double y = 10.0; //test with 10 meters ahead
+    const double v = 100.0; //test with 100 m/s speed
+    const double theta = 3.14159265356*0.5; //test with 90 degree
+
+    Point2f origin_point = {
+        static_cast<float>(ORIGIN_X + x * PIXELS_PER_METER),
+        static_cast<float>(ORIGIN_Y - y * PIXELS_PER_METER)
+    };
+    Point2f end_point = {
+        static_cast<float>(ORIGIN_X + x * PIXELS_PER_METER + v * cos(theta) * latency),
+        static_cast<float>(ORIGIN_Y - y * PIXELS_PER_METER - v * sin(theta) * latency)
+    };
+    vector<Point2f> lines = create_line_between_points(origin_point, end_point, 150);
+    project(lines);
+}
+
 TextComponent::TextComponent(const int x, const int y, const int width, const int height): ImageComponent(
     x, y, width, height)
 {

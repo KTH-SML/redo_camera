@@ -81,6 +81,13 @@ public:
     void update(float v, float a, float str_whe_phi_remote, float str_whe_phi_local, float latency);
 };
 
+class PredictionSurroundingsLine final : public LineComponent
+{
+public:
+    PredictionSurroundingsLine(const string& fisheye_config, const string& homography_config, int width, int height);
+    void update(const float latency);
+};
+
 class TextComponent final : public ImageComponent
 {
 public:

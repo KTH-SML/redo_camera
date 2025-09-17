@@ -67,6 +67,7 @@ void capture_frames(const char *video_device, const std::string &ip, int port, b
     // Define the sensor data components
     std::unique_ptr<StreamImage> stream_image;
     std::shared_ptr<PredictionLine> prediction_line;
+    std::shared_ptr<PredictionSurroundingsLine> prediction_surroundings_line;
     std::shared_ptr<TextComponent> velocity;
     std::shared_ptr<TextComponent> latency_label;
     std::unique_ptr<SensorAPI> latency;
@@ -181,7 +182,7 @@ void capture_frames(const char *video_device, const std::string &ip, int port, b
             {
                 buffer = new char[BUFFER_SIZE]();
                 buffer_2 = new char[BUFFER_SIZE]();
-                if (is_hmi || is_p_hmi)
+                if (is_hmi || is_p_hmi || is_surroundings_hmi)
                 {
                     vel = std::make_unique<SensorAPI>(Velocity, buffer, BUFFER_SIZE, bufferMutex);
                     ax = std::make_unique<SensorAPI>(Ax, buffer, BUFFER_SIZE, bufferMutex);
@@ -190,9 +191,13 @@ void capture_frames(const char *video_device, const std::string &ip, int port, b
                     stream_image = std::make_unique<StreamImage>(width, height);
                     prediction_line = std::make_shared<PredictionLine>("fisheye_calibration.yaml",
                                                                        "homography_calibration.yaml", width, height);
+                    prediction_surroundings_line = std::make_shared<PredictionSurroundingsLine>(
+                        "fisheye_calibration.yaml", "homography_calibration.yaml", width, height);
+                    
                     velocity = make_shared<TextComponent>(960, 770, 100, 100);
                     latency_label = make_shared<TextComponent>(1800, 50, 200, 100);
                     stream_image->add_component("prediction_line", std::static_pointer_cast<Component>(prediction_line));
+                    stream_image->add_component("prediction_surroundings_line", std::static_pointer_cast<Component>(prediction_surroundings_line));
                     stream_image->add_component("velocity", std::static_pointer_cast<Component>(velocity));
                     stream_image->add_component("latency_label", std::static_pointer_cast<Component>(latency_label));
                 }
@@ -213,12 +218,7 @@ void capture_frames(const char *video_device, const std::string &ip, int port, b
                                               std::ref(thread_signal), std::ref(is_thread_running_2));
                 is_sensor_init = true;
             }
-            if (is_surroundings_hmi)
-            {
-                // Not supported yet
-                
-            }
-            if (is_hmi || is_p_hmi)
+            if (is_hmi || is_p_hmi || is_surroundings_hmi)
             {
                 const auto _vel = vel->get_float_value();
                 const int total_delay = delay_ms + latency->get_int_value();
@@ -229,6 +229,10 @@ void capture_frames(const char *video_device, const std::string &ip, int port, b
                 else
                 {
                     prediction_line->update(_vel, ax->get_float_value(), str_whe_phi->get_float_value(), str_whe_phi->get_float_value(), 0);
+                }
+                if (is_surroundings_hmi)
+                {
+                    prediction_surroundings_line->update(total_delay / 1000.0);
                 }
                 velocity->update(to_string(static_cast<int>(_vel)));
                 latency_label->update(std::to_string(total_delay) + " ms");

@@ -100,6 +100,7 @@ int main(int argc, char *argv[])
         std::cout << "[main]   -s                   Add the sensor data to the video stream" << std::endl;
         std::cout << "[main]   -hmi                 Add HMI to the stream" << std::endl;
         std::cout << "[main]   -p_hmi               Add Prediction HMI to the stream" << std::endl;
+        std::cout << "[main]   -surroundings_hmi    Add Surroundings HMI to the stream" << std::endl;
         std::cout << "[main]   -ip <ip>             Specify the IP address to stream frames to (default: 0.0.0.0)" << std::endl;
         std::cout << "[main]   -p <port>            Specify the port to stream frames to (default: 10086)" << std::endl;
         std::cout << "[main]   -log <logger_file>   Specify the logger file to log sensor data" << std::endl;
@@ -237,7 +238,7 @@ int main(int argc, char *argv[])
         std::cout << "[main] P-HMI mode disabled" << std::endl;
     }
 
-    if (args.find("surroundings_hmi") != args.end())
+    if (args.find("-surroundings_hmi") != args.end())
     {
         is_surroundings_hmi = true;
         std::cout << "[main] Surroundings HMI mode enabled" << std::endl;
