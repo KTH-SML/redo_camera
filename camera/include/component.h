@@ -8,9 +8,10 @@
 #include "homography.h"
 
 // #define ORIGIN_X 959 // for zed camera
-#define ORIGIN_X 630 // for usb camera
-// #define ORIGIN_Y 1079 // for zed camera
-#define ORIGIN_Y  360// for usb camera
+#define ORIGIN_X 635 // for usb camera
+// #define ORIGIN_Y 1199 // for zed camera
+// #define ORIGIN_Y  360// for usb camera
+#define ORIGIN_Y  770// for usb camera
 // #define PIXELS_PER_METER 10 // for zed camera
 #define PIXELS_PER_METER 10*2/3.0f // for usb camera
 #define STR_WHE_RATIO 60.0f

@@ -179,9 +179,6 @@ void TPComponent::update(const vector<pair<float, float>>& points)
     }
     project(shapes);
     std::cout << "=== [DEBUG] TPComponent Projected Points ===" << std::endl;
-    
-    // lines_ は LineComponent で定義されている変換後の点を格納する変数と仮定
-    // もしアクセスできない(private)場合は、後述の「関数オーバーライド」を使ってください
     for (size_t i = 0; i < lines_.size(); ++i) {
         std::cout << "  pt[" << i << "]: (" 
                   << lines_[i].x << ", " << lines_[i].y << ")" << std::endl;
@@ -205,13 +202,13 @@ void TrajectoryPoints::update(const std::vector<std::pair<float, float>>& points
         shapes.emplace_back(world_cx, world_cy);
     }
     project(shapes);
-    std::cout << "=== [DEBUG] TPComponent Projected Points ===" << std::endl;
+    // std::cout << "=== [DEBUG] TPComponent Projected Points ===" << std::endl;
     
-    for (size_t i = 0; i < lines_.size(); ++i) {
-        std::cout << "  pt[" << i << "]: (" 
-                  << lines_[i].x << ", " << lines_[i].y << ")" << std::endl;
-    }
-    std::cout << "===============================================" << std::endl;
+    // for (size_t i = 0; i < lines_.size(); ++i) {
+    //     std::cout << "  pt[" << i << "]: (" 
+    //               << lines_[i].x << ", " << lines_[i].y << ")" << std::endl;
+    // }
+    // std::cout << "===============================================" << std::endl;
 }
 
 TextComponent::TextComponent(const int x, const int y, const int width, const int height): ImageComponent(

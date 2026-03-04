@@ -6,7 +6,10 @@
 #include <atomic>
 #include <vector>
 #include <cstdint>
+#include <netinet/in.h>
+#include <sys/types.h>
 #include <utility> 
+#include <mutex>
 
 static constexpr uint16_t MPC_PORT = 50052;
 static constexpr uint32_t MPC_MAGIC = 0x4D504350;    // 'MPCP'
@@ -15,18 +18,28 @@ static constexpr size_t   MPC_HEADER_SIZE = 24;
 
 class SocketBridge
 {
-    int sockfd_;
-    sockaddr_in localAddr_;
-
 public:
-    SocketBridge(const std::string &ip, int port);
+    SocketBridge(const std::string& ip, int port);
     ~SocketBridge();
+
     [[nodiscard]] bool isValid() const;
-    ssize_t receiveData(char *buffer, size_t bufferSize) const;
+
+    ssize_t receiveData(char* buffer, size_t bufferSize) const;
+
+    void shutdownAndClose();
+
+private:
+    int sockfd_ = -1;
+    sockaddr_in localAddr_{};
+    mutable std::mutex fd_mtx_;
 };
 
-void receive_data_loop(const SocketBridge *bridge, char *buffer, size_t bufferSize,
-                       std::shared_mutex &bufferMutex, bool &signal, bool &isRunning);
+void receive_data_loop(const SocketBridge* bridge,
+                       char* buffer,
+                       size_t bufferSize,
+                       std::shared_mutex& bufferMutex,
+                       std::atomic_bool& stop,
+                       std::atomic_bool& isRunning);
 
 struct XYVV {
     float x;

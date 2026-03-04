@@ -10,8 +10,8 @@ cd "$SCRIPT_DIR"
 # List of startup commands
 CMDS=(
   "python3 ./hmi_bridge.py"
-  # "./svea_stream -s -log output/output"
-  "./usb_stream -s -log output/output"
+  "./svea_stream -s -log output/output"
+  # "./usb_stream -s -log output/output"
   "docker compose -f ./docker-compose-fmq-svea2.yml up"
   "python3 ./svea_bridge.py"
 )
@@ -90,7 +90,7 @@ start() {
     exit 1
   fi
   
-  # Initialize v4l2 devices before starting processes
+  # Initialize v4l2 devices before starting processes  
   # echo "Initializing v4l2 devices..."
   # if [[ -x "./init_v4l2" ]]; then
   #   ./init_v4l2
@@ -194,7 +194,7 @@ _stop_one_proc() {
   fi
 
   # 1) SIGINT (Ctrl+C)
-  _send_signal_with_timeout "$target" "SIGINT" "$INT_WAIT" "$cmd"
+  # _send_signal_with_timeout "$target" "SIGINT" "$INT_WAIT" "$cmd"
 
   # Still alive -> 2) SIGTERM
   if kill -0 "$target" 2>/dev/null; then

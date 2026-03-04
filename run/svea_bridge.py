@@ -38,7 +38,7 @@ def receiveFromControlTower(fleetmq, topic):
         if data != None:        
             # fdb = struct.unpack('<IfffII',data)
             # print(fdb) 	
-            sock_tx.sendto(data, (UDP_IP_LOCAL, 10003))
+            sock_tx.sendto(data, (UDP_IP_LOCAL, 10086))
         time.sleep(0.01)
         
 def sendToControlTower(fleetmq, topic):
@@ -51,6 +51,7 @@ def sendToControlTower(fleetmq, topic):
 
 def pullMetrics(fleetmq):
     sock_tx_latency = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
 
     while True:
         try:
@@ -81,7 +82,7 @@ def pullMetrics(fleetmq):
             continue
 
         latency_bytes = struct.pack('<I', latency_ms)
-        sock_tx_latency.sendto(latency_bytes, (UDP_IP_LOCAL, 10088))
+        sock_tx_latency.sendto(latency_bytes, (UDP_IP_LOCAL, 10087))
         now = datetime.datetime.now().isoformat(timespec="milliseconds")
         print(f"{now}: {latency_ms} ms ")
 

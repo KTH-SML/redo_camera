@@ -8,37 +8,36 @@
 #include <vector>
 #include <thread>
 #include <mutex>
+#include <cerrno>
+#include <atomic>
+#include <chrono>
 
 #include "socket_bridge.h"
 
-SocketBridge::SocketBridge(const std::string &ip, int port)
-    : sockfd_(-1), localAddr_()
+SocketBridge::SocketBridge(const std::string& ip, int port)
 {
-    sockfd_ = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sockfd_ < 0)
-    {
-        std::cerr << "[socket bridge] Cannot create socket." << std::endl;
+    sockfd_ = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd_ < 0) {
+        std::cerr << "[socket bridge] Cannot create socket.\n";
         return;
     }
 
     int optval = 1;
-    if (setsockopt(sockfd_, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval)) < 0)
-    {
-        std::cerr << "[socket bridge] setsockopt(SO_REUSEPORT) failed." << std::endl;
-        close(sockfd_);
+    if (::setsockopt(sockfd_, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval)) < 0) {
+        std::cerr << "[socket bridge] setsockopt(SO_REUSEPORT) failed.\n";
+        ::close(sockfd_);
         sockfd_ = -1;
         return;
     }
 
     std::memset(&localAddr_, 0, sizeof(localAddr_));
     localAddr_.sin_family = AF_INET;
-    localAddr_.sin_addr.s_addr = inet_addr(ip.c_str());
-    localAddr_.sin_port = htons(port);
+    localAddr_.sin_addr.s_addr = ::inet_addr(ip.c_str());
+    localAddr_.sin_port = ::htons(port);
 
-    if (bind(sockfd_, reinterpret_cast<const sockaddr *>(&localAddr_), sizeof(localAddr_)) < 0)
-    {
-        std::cerr << "[socket bridge] Port bind failed." << std::endl;
-        close(sockfd_);
+    if (::bind(sockfd_, reinterpret_cast<const sockaddr*>(&localAddr_), sizeof(localAddr_)) < 0) {
+        std::cerr << "[socket bridge] Port bind failed.\n";
+        ::close(sockfd_);
         sockfd_ = -1;
         return;
     }
@@ -46,74 +45,96 @@ SocketBridge::SocketBridge(const std::string &ip, int port)
 
 SocketBridge::~SocketBridge()
 {
-    if (sockfd_ != -1)
-    {
-        close(sockfd_);
-    }
+    shutdownAndClose();
 }
 
 bool SocketBridge::isValid() const
 {
-    return sockfd_ != -1;
+    std::lock_guard<std::mutex> lk(fd_mtx_);
+    return sockfd_ >= 0;
 }
 
-ssize_t SocketBridge::receiveData(char *buffer, const size_t bufferSize) const
+ssize_t SocketBridge::receiveData(char* buffer, size_t bufferSize) const
 {
-    if (sockfd_ < 0)
+    int fd;
     {
-        return -1;
+        std::lock_guard<std::mutex> lk(fd_mtx_);
+        fd = sockfd_;
     }
-    sockaddr_in serverAddr{};
-    socklen_t senderLen = sizeof(serverAddr);
-    return recvfrom(sockfd_, buffer, bufferSize, 0,
-                    reinterpret_cast<sockaddr *>(&serverAddr), &senderLen);
+    if (fd < 0) return -1;
+
+    sockaddr_in src{};
+    socklen_t slen = sizeof(src);
+    return ::recvfrom(fd, buffer, bufferSize, 0,
+                      reinterpret_cast<sockaddr*>(&src), &slen);
 }
 
-void receive_data_loop(const SocketBridge *bridge, char *buffer, const size_t bufferSize,
-                       std::shared_mutex &bufferMutex, bool &signal, bool &isRunning)
+void SocketBridge::shutdownAndClose()
 {
-    isRunning = true;
-    auto localBuffer = new char[bufferSize];
-    while (!signal && bridge && bridge->isValid())
-    {
-        bridge->receiveData(localBuffer, bufferSize);
-        std::lock_guard lock(bufferMutex);
-        std::memcpy(buffer, localBuffer, bufferSize);
-    }
-    delete[] localBuffer;
-    isRunning = false;
+    std::lock_guard<std::mutex> lk(fd_mtx_);
+    if (sockfd_ < 0) return;
+
+    // UDP なので shutdown は不要だが、呼ぶなら失敗しても無視でOK
+    (void)::shutdown(sockfd_, SHUT_RDWR);
+    (void)::close(sockfd_);
+    sockfd_ = -1;
 }
 
+void receive_data_loop(const SocketBridge* bridge,
+                       char* buffer,
+                       const size_t bufferSize,
+                       std::shared_mutex& bufferMutex,
+                       std::atomic_bool& stop,
+                       std::atomic_bool& isRunning)
+{
+    isRunning.store(true, std::memory_order_release);
+    std::vector<char> local(bufferSize);
+
+    while (!stop.load(std::memory_order_acquire) && bridge && bridge->isValid()) {
+        const ssize_t n = bridge->receiveData(local.data(), local.size());
+        if (n <= 0) continue;
+
+        {
+            std::lock_guard lock(bufferMutex);
+            std::memcpy(buffer, local.data(), static_cast<size_t>(n));
+        }
+    }
+
+    isRunning.store(false, std::memory_order_release);
+}
+
+// ===== TP_status_receive_loop (重複していたので1個だけ残す) =====
 void TP_status_receive_loop(int fd,
                             std::atomic<bool>& stop,
                             std::atomic<bool>& isRunning,
                             std::vector<XYVV>& out_vec,
                             std::shared_mutex& mtx)
 {
-    isRunning = true;
+    isRunning.store(true, std::memory_order_release);
     std::vector<uint8_t> buf(65536);
 
-    while(!stop){
+    while (!stop.load(std::memory_order_acquire)) {
         sockaddr_in src{};
         socklen_t slen = sizeof(src);
-        ssize_t n = ::recvfrom(fd, buf.data(), buf.size(), 0, reinterpret_cast<sockaddr*>(&src), &slen);
+        const ssize_t n = ::recvfrom(fd, buf.data(), buf.size(), 0,
+                                     reinterpret_cast<sockaddr*>(&src), &slen);
 
-        if(n <=0){
+        if (n <= 0) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
             continue;
         }
-        if (static_cast<size_t>(n) < XYVV_HEADER_SIZE) {
-            continue;
-        }
+        if (static_cast<size_t>(n) < XYVV_HEADER_SIZE) continue;
 
-        uint32_t count_le;
-        std::memcpy(&count_le, buf.data(), 4);
-        const uint32_t count = count_le;
+        uint32_t count_raw;
+        std::memcpy(&count_raw, buf.data(), 4);
+
+        // NOTE: count がLE/BEどちらかはプロトコル仕様次第。
+        // 今は既存コードに合わせてそのまま使用。
+        const uint32_t count = count_raw;
 
         const size_t expected = XYVV_HEADER_SIZE + static_cast<size_t>(count) * sizeof(XYVV);
-        if(static_cast<size_t>(n) != expected){
-            continue;
-        }
+        if (static_cast<size_t>(n) != expected) continue;
+
         const uint8_t* payload = buf.data() + XYVV_HEADER_SIZE;
         std::vector<XYVV> tmp(count);
         std::memcpy(tmp.data(), payload, count * sizeof(XYVV));
@@ -123,7 +144,8 @@ void TP_status_receive_loop(int fd,
             out_vec.swap(tmp);
         }
     }
-    isRunning = false;
+
+    isRunning.store(false, std::memory_order_release);
 }
 
 static inline uint16_t read_u16_be(const uint8_t* p){
@@ -145,22 +167,23 @@ void MPC_receive_loop(int fd,
                       MPCPacketMeta& out_meta,
                       std::shared_mutex& mtx)
 {
-    isRunning = true;
+    isRunning.store(true, std::memory_order_release);
     std::vector<uint8_t> buf(65536);
 
     uint32_t last_seq = 0;
     bool has_last = false;
 
-    while(!stop){
+    while (!stop.load(std::memory_order_acquire)) {
         sockaddr_in src{};
         socklen_t slen = sizeof(src);
-        ssize_t n = ::recvfrom(fd, buf.data(), buf.size(), 0, reinterpret_cast<sockaddr*>(&src), &slen);
+        const ssize_t n = ::recvfrom(fd, buf.data(), buf.size(), 0,
+                                     reinterpret_cast<sockaddr*>(&src), &slen);
 
-        if(n <= 0){
+        if (n <= 0) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
             continue;
         }
-        if(static_cast<size_t>(n) < MPC_HEADER_SIZE) continue;
+        if (static_cast<size_t>(n) < MPC_HEADER_SIZE) continue;
 
         const uint8_t* p = buf.data();
 
@@ -170,33 +193,26 @@ void MPC_receive_loop(int fd,
         const uint32_t seq     = read_u32_be(p + 8);
         const uint64_t t_ns    = read_u64_be(p + 12);
         const uint16_t count   = read_u16_be(p + 20);
-        // reserved at p+22
 
-        if(magic != MPC_MAGIC) continue;
-        if(version != MPC_VERSION) continue;
+        if (magic != MPC_MAGIC) continue;
+        if (version != MPC_VERSION) continue;
 
         const size_t payload_bytes = size_t(count) * 2u * sizeof(float);
         const size_t expected = MPC_HEADER_SIZE + payload_bytes;
-        if(static_cast<size_t>(n) != expected) continue;
+        if (static_cast<size_t>(n) != expected) continue;
 
-        // optional: drop old seq (simple)
-        if(has_last){
-            if(seq == last_seq) continue;
-        }
+        if (has_last && seq == last_seq) continue;
         last_seq = seq;
         has_last = true;
 
         const uint8_t* payload = p + MPC_HEADER_SIZE;
 
-        std::vector<std::pair<float,float>> tmp;
-        tmp.resize(count);
-
-        // payload = [x0,y0,x1,y1,...] float32
-        for(uint16_t i=0;i<count;i++){
-            float xy[2];
-            std::memcpy(&xy[0], payload + (size_t(i)*2u + 0u)*sizeof(float), sizeof(float));
-            std::memcpy(&xy[1], payload + (size_t(i)*2u + 1u)*sizeof(float), sizeof(float));
-            tmp[i] = {xy[0], xy[1]};
+        std::vector<std::pair<float,float>> tmp(count);
+        for (uint16_t i = 0; i < count; i++) {
+            float x, y;
+            std::memcpy(&x, payload + (size_t(i) * 2u + 0u) * sizeof(float), sizeof(float));
+            std::memcpy(&y, payload + (size_t(i) * 2u + 1u) * sizeof(float), sizeof(float));
+            tmp[i] = {x, y};
         }
 
         MPCPacketMeta meta;
@@ -212,5 +228,5 @@ void MPC_receive_loop(int fd,
         }
     }
 
-    isRunning = false;
+    isRunning.store(false, std::memory_order_release);
 }

@@ -12,6 +12,7 @@ __pycache__/
 
 run/calc_pers.py
 run/docker-compose-fmq-svea2.yml
+run/docker-compose-fmq-demo_zed_x_one.yml
 mpc_guidance_bridge/build/
 mpc_guidance_bridge/log/
 mpc_guidance_bridge/install/

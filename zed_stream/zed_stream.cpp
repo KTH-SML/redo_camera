@@ -4,9 +4,15 @@
 #include <sys/ioctl.h>
 #include <linux/videodev2.h>
 #include <thread>
-#include <sl/Camera.hpp>
+// #include <sl/Camera.hpp>
+#include <sl/CameraOne.hpp>
+#include <atomic>
+#include <chrono>
+#include <sstream>
+#include <iomanip>
 #include <atomic>
 
+#include <opencv2/opencv.hpp>
 #include "zed_stream.h"
 #include "component.h"
 #include "formatting.h"
@@ -32,9 +38,10 @@ SocketBridge *bridge_2 = nullptr;
 char *buffer = nullptr;
 char *buffer_2 = nullptr;
 bool is_sensor_init = false;
-bool thread_signal = false;
-bool is_thread_running = false;
-bool is_thread_running_2 = false;
+std::atomic_bool thread_signal{false};
+std::atomic_bool isRunning{false};
+std::atomic_bool is_thread_running{false};
+std::atomic_bool is_thread_running_2{false};
 unsigned char *d_bgra = nullptr;
 unsigned char *rgb = nullptr;
 unsigned char *yuyv = nullptr;
@@ -49,8 +56,19 @@ std::atomic<bool> TP_udp_running{false};
 std::vector<XYVV> TP_status_latest;
 std::shared_mutex xyvv_mutex;
 
-std::shared_ptr<TPComponent> mpc_visualizer;
+int MPC_sock_fd = -1;
+std::thread MPC_thread;
+std::atomic<bool> MPC_udp_stop{false};
+std::atomic<bool> MPC_udp_running{false};
 
+std::vector<std::pair<float,float>> MPC_latest_pts;
+MPCPacketMeta MPC_latest_meta;
+std::shared_mutex mpc_mutex;
+
+std::shared_ptr<TPComponent> tp_visualizer;
+std::shared_ptr<TrajectoryPoints> mpc_visualizer;
+
+//[tmp for test mpc visualizing]read csv and reshape to vector<pair<float, float>>
 std::vector<std::pair<float, float>> parse_mpc_trajectory(const std::string& csv_data, int horizon = 41)
 {
     std::vector<float> values;
@@ -73,7 +91,7 @@ std::vector<std::pair<float, float>> parse_mpc_trajectory(const std::string& csv
     points.reserve(horizon);
 
     for (int i = 0; i < horizon; ++i) {
-        float x = values[i];
+        float x = values[i]; 
         float y = values[i + horizon];
         points.push_back({x, y});
     }
@@ -93,18 +111,56 @@ void capture_frames(const char *video_device, const std::string &ip, int port, b
     }
 
     // Initialize zed
-    sl::Camera zed;
-    sl::InitParameters init_params;
-    init_params.camera_resolution = sl::RESOLUTION::HD1080; // Use HD1080 video mode
-    init_params.depth_mode = sl::DEPTH_MODE::NONE;
+    // sl::Camera zed;
+    // sl::InitParameters init_params;
+    // init_params.camera_resolution = sl::RESOLUTION::HD1080; // Use HD1080 video mode
+    // init_params.depth_mode = sl::DEPTH_MODE::NONE;
+    // init_params.camera_fps = fps;
+    // init_params.coordinate_units = sl::UNIT::MILLIMETER;
+
+    // for ZED X ONE
+    sl::CameraOne zed;
+    sl::InputType input;
+    sl::InitParametersOne init_params;
+    init_params.sdk_verbose = true;
+    init_params.camera_resolution = sl::RESOLUTION::AUTO;
     init_params.camera_fps = fps;
     init_params.coordinate_units = sl::UNIT::MILLIMETER;
+    input.setFromSerialNumber(307868120);
+    init_params.input = input;
 
-    sl::ERROR_CODE err = zed.open(init_params);
-    if (err != sl::ERROR_CODE::SUCCESS)
-        exit(-1);
+    auto err = zed.open(init_params);
+    if (err > sl::ERROR_CODE::SUCCESS) {
+        std::cerr << "[zed stream] Camera open failed: "
+                << sl::toString(err) << " / " << sl::toVerbose(err) << std::endl;
+        return;
+    }
+    auto info = zed.getCameraInformation();
+    std::cout << "[zed stream] OPENED: serial=" << info.serial_number
+            << " model=" << info.camera_model
+            << " input=" << info.input_type
+            << " res=" << info.camera_configuration.resolution.width
+            << "x" << info.camera_configuration.resolution.height
+            << " fps=" << info.camera_configuration.fps
+            << std::endl;
+    sl::Mat image;
+    if (zed.grab() == sl::ERROR_CODE::SUCCESS) {
+        zed.retrieveImage(image, sl::VIEW::LEFT, sl::MEM::GPU);
+    }
 
-    sl::Mat image(1920, 1080, sl::MAT_TYPE::U8_C4);
+    static bool printed = false;
+    if (!printed) {
+        auto* cpu_ptr = image.getPtr<sl::uchar1>(sl::MEM::CPU);
+        auto* gpu_ptr = image.getPtr<sl::uchar1>(sl::MEM::GPU);
+
+        std::cout << "[zed stream] mat type=" << sl::toString(image.getDataType())
+                << " w=" << image.getWidth() << " h=" << image.getHeight()
+                << " cpu_ptr=" << static_cast<void*>(cpu_ptr)
+                << " gpu_ptr=" << static_cast<void*>(gpu_ptr)
+                << std::endl;
+        printed = true;
+    }
+
 
     // Define the sensor data components
     std::unique_ptr<StreamImage> stream_image;
@@ -181,6 +237,35 @@ void capture_frames(const char *video_device, const std::string &ip, int port, b
         std::cerr << "[zed stream] Failed to create TP UDP socket" << std::endl;
     }
 
+    // MPC UDP socket initialization
+    MPC_sock_fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (MPC_sock_fd >= 0) {
+        int yes = 1;
+        ::setsockopt(MPC_sock_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_ANY);
+        addr.sin_port = htons(MPC_PORT);
+
+        if (::bind(MPC_sock_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+            std::cerr << "[usb stream] Failed to bind MPC UDP socket\n";
+            ::close(MPC_sock_fd);
+            MPC_sock_fd = -1;
+        } else {
+            MPC_udp_stop = false;
+            MPC_thread = std::thread(MPC_receive_loop,
+                                    MPC_sock_fd,
+                                    std::ref(MPC_udp_stop),
+                                    std::ref(MPC_udp_running),
+                                    std::ref(MPC_latest_pts),
+                                    std::ref(MPC_latest_meta),
+                                    std::ref(mpc_mutex));
+            std::cout << "[usb stream] MPC UDP socket initialized on port " << MPC_PORT << std::endl;
+        }
+    } else {
+        std::cerr << "[usb stream] Failed to create MPC UDP socket\n";
+    }
+
     // Define the converter pointer
     std::unique_ptr<CudaImageConverter> converter_bgra2rgb;
     std::unique_ptr<CudaImageConverter> converter_rgb2yuyv;
@@ -194,6 +279,7 @@ void capture_frames(const char *video_device, const std::string &ip, int port, b
         if (zed.grab() == sl::ERROR_CODE::SUCCESS)
         {
             zed.retrieveImage(image, sl::VIEW::LEFT, sl::MEM::GPU);
+            // zed.retrieveImage(image, sl::MEM::GPU);   // view/mem指定なし
         }
 
         // Print the pixel format only once and initialize the virtual device and CUDA
@@ -262,15 +348,20 @@ void capture_frames(const char *video_device, const std::string &ip, int port, b
                     prediction_surroundings_line = std::make_shared<PredictionSurroundingsLine>(
                         "fisheye_calibration.yaml", "homography_calibration.yaml", width, height);
                     
-                    velocity = make_shared<TextComponent>(960, 770, 100, 100);
-                    latency_label = make_shared<TextComponent>(1800, 50, 200, 100);
+                    // velocity = make_shared<TextComponent>(960, 770, 100, 100); //for zed stereo left
+                    velocity = make_shared<TextComponent>(1800, 1100, 300, 200);
+                    latency_label = make_shared<TextComponent>(1800, 50, 300, 200);
                     stream_image->add_component("prediction_line", std::static_pointer_cast<Component>(prediction_line));
                     stream_image->add_component("prediction_surroundings_line", std::static_pointer_cast<Component>(prediction_surroundings_line));
                     stream_image->add_component("velocity", std::static_pointer_cast<Component>(velocity));
                     stream_image->add_component("latency_label", std::static_pointer_cast<Component>(latency_label));
 
-                    mpc_visualizer = std::make_shared<TPComponent>(
-                        "fisheye_calibration.yaml", "homography_calibration.yaml", width, height, Scalar(32, 22, 223), 3);
+                    tp_visualizer = std::make_shared<TPComponent>(
+                        "fisheye_calibration.yaml", "homography_calibration_world_to_Image.yaml", width, height, Scalar(223, 22, 32), 6);
+                    stream_image->add_component("tp_visualizer", std::static_pointer_cast<Component>(tp_visualizer));
+
+                    mpc_visualizer = std::make_shared<TrajectoryPoints>(
+                        "fisheye_calibration.yaml", "homography_calibration_world_to_Image.yaml", width, height, Scalar(32, 220, 223), 10);
                     stream_image->add_component("mpc_visualizer", std::static_pointer_cast<Component>(mpc_visualizer));
                 }
                 if (logger)
@@ -299,13 +390,36 @@ void capture_frames(const char *video_device, const std::string &ip, int port, b
                     std::shared_lock lock(xyvv_mutex);
                     TP_status_copy = TP_status_latest;
                 }
-                std::cout << "TP count: " << TP_status_copy.size() << std::endl;
+                std::vector<std::pair<float, float>> points_for_display;
+                points_for_display.reserve(TP_status_copy.size());
+
+                // std::cout << "TP count: " << TP_status_copy.size() << std::endl;
                 for (size_t i = 0; i < TP_status_copy.size(); ++i) {
-                    std::cout << "TP " << i << ": x=" << TP_status_copy[i].x
-                              << " y=" << TP_status_copy[i].y
-                              << " vx=" << TP_status_copy[i].vx
-                              << " vy=" << TP_status_copy[i].vy << std::endl;
+                    // std::cout << "TP " << i << ": x=" << TP_status_copy[i].x
+                    //           << " y=" << TP_status_copy[i].y
+                    //           << " vx=" << TP_status_copy[i].vx
+                    //           << " vy=" << TP_status_copy[i].vy << std::endl;
+                    // points_for_display.emplace_back(TP_status_copy[i].x, TP_status_copy[i].y);
+                    points_for_display.emplace_back(TP_status_copy[i].x, 1.0 * TP_status_copy[i].y);
                 }
+
+                std::vector<std::pair<float,float>> mpc_pts_copy;
+                MPCPacketMeta meta_copy;
+                {
+                    std::shared_lock lock(mpc_mutex);
+                    mpc_pts_copy = MPC_latest_pts;
+                    meta_copy = MPC_latest_meta;
+                }
+                tp_visualizer->update(points_for_display);
+
+                if(!mpc_pts_copy.empty()){
+                    for(auto& pt : mpc_pts_copy){
+                        pt.second *= 1.0f;  // if needed
+                    }
+                    mpc_visualizer->update(mpc_pts_copy);
+
+                }
+                
                 if (is_p_hmi)
                 {
                     prediction_line->update(_vel, ax->get_float_value(), str_whe_phi->get_float_value(), str_whe_phi->get_float_value(), total_delay / 1000.0);
@@ -318,7 +432,12 @@ void capture_frames(const char *video_device, const std::string &ip, int port, b
                 {
                     prediction_surroundings_line->update(total_delay / 1000.0);
                 }
+
                 velocity->update(to_string(static_cast<int>(_vel)));
+
+                std::ostringstream velocity_ss;
+                velocity_ss << std::fixed << std::setprecision(2) << _vel << " m/s";
+                velocity->update(velocity_ss.str());
                 latency_label->update(std::to_string(total_delay) + " ms");
                 *stream_image >> rgb;
             }
@@ -338,67 +457,69 @@ void capture_frames(const char *video_device, const std::string &ip, int port, b
         }
     }
 
-    // Cleanup
-    if (is_sensor_init)
-    {
-        thread_signal = true;
-        if (sensor_thread.joinable() && sensor_thread_2.joinable())
-        {
-            int count = 0;
-            while ((is_thread_running || is_thread_running_2) && count++ < 30)
-            {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
-            if (is_thread_running || is_thread_running_2)
-            {
-                std::cerr << "[zed stream] Sensor thread did not exit gracefully" << std::endl;
-                sensor_thread.detach();
-                sensor_thread_2.detach();
-            }
-            else
-            {
-                sensor_thread.join();
-                sensor_thread_2.join();
-            }
-        }
-        thread_signal = false;
-        delete[] buffer;
-        buffer = nullptr;
-        delete[] buffer_2;
-        buffer_2 = nullptr;
-        delete bridge;
-        bridge = nullptr;
-        delete bridge_2;
-        bridge_2 = nullptr;
-        is_sensor_init = false;
+// Cleanup (reliable, no detach)
+auto join_if_joinable = [](std::thread& t, const char* name) {
+    if (!t.joinable()) return;
+    try {
+        t.join();
+    } catch (...) {
+        std::cerr << "[cleanup] join threw exception: " << name << std::endl;
     }
-    if (is_init)
-    {
-        d_bgra = nullptr;
-        free_cuda_buffer(rgb);
-        rgb = nullptr;
-        free_cuda_buffer(yuyv);
-        yuyv = nullptr;
-        is_init = false;
-    }
-    if (TP_status_sock_fd >= 0) {
-        TP_udp_stop = true;
-        if (TP_status_thread.joinable()) {
-            int count = 0;
-            while (TP_udp_running && count++ < 30) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
-            if (TP_udp_running) {
-                std::cerr << "[zed stream] TP UDP thread did not exit gracefully" << std::endl;
-                TP_status_thread.detach();
-            } else {
-                TP_status_thread.join();
-            }
-        }
-        ::close(TP_status_sock_fd);
-        TP_status_sock_fd = -1;
-    }
+};
 
-    zed.close();
-    close(video_fd);
+auto close_udp_socket = [](int& fd) {
+    if (fd >= 0) {
+        ::shutdown(fd, SHUT_RDWR);
+        ::close(fd);
+        fd = -1;
+    }
+};
+
+if (is_sensor_init) {
+    thread_signal = true;
+
+    if (bridge)   bridge->shutdownAndClose();
+    if (bridge_2) bridge_2->shutdownAndClose();
+
+    join_if_joinable(sensor_thread,   "sensor_thread");
+    join_if_joinable(sensor_thread_2, "sensor_thread_2");
+
+    thread_signal = false;
+
+    delete[] buffer;   buffer   = nullptr;
+    delete[] buffer_2; buffer_2 = nullptr;
+
+    delete bridge;   bridge   = nullptr;
+    delete bridge_2; bridge_2 = nullptr;
+
+    is_sensor_init = false;
+}
+
+if (TP_status_sock_fd >= 0) {
+    TP_udp_stop.store(true, std::memory_order_release);
+    close_udp_socket(TP_status_sock_fd);
+    join_if_joinable(TP_status_thread, "TP_status_thread");
+}
+
+if (MPC_sock_fd >= 0) {
+    MPC_udp_stop.store(true, std::memory_order_release);
+    close_udp_socket(MPC_sock_fd);
+    join_if_joinable(MPC_thread, "MPC_thread");
+}
+
+if (is_init) {
+    d_bgra = nullptr;
+
+    if (rgb)  { free_cuda_buffer(rgb);  rgb  = nullptr; }
+    if (yuyv) { free_cuda_buffer(yuyv); yuyv = nullptr; }
+
+    is_init = false;
+}
+
+zed.close();
+
+if (video_fd >= 0) {
+    ::close(video_fd);
+    video_fd = -1;
+}
 }
