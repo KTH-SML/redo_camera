@@ -11,7 +11,7 @@ endif()
 
 find_package(ZED REQUIRED)
 find_package(OpenCV REQUIRED)
-find_package(CUDA ${ZED_CUDA_VERSION} REQUIRED)
+find_package(CUDA 12.6 REQUIRED)
 
 include_directories(${CUDA_INCLUDE_DIRS})
 include_directories(${ZED_INCLUDE_DIRS})
@@ -40,6 +40,7 @@ target_link_libraries(zed_stream
         ${ZED_LIBRARIES}
         ${OpenCV_LIBS}
         ${CUDA_LIBRARIES}
+        /usr/lib/aarch64-linux-gnu/libjpeg.so
         camera
         sensor
         motion

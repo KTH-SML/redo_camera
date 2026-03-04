@@ -93,7 +93,8 @@ class UDPBridgeNode(Node):
             
             self.udp_socket.sendto(data, (self.udp_host, self.udp_port))
             
-            self.get_logger().debug(f'Sent UDP: steering={self.steering_angle:.3f}, velocity={self.velocity_x:.3f}')
+            # self.get_logger().debug(f'Sent UDP: steering={self.steering_angle:.3f}, velocity={self.velocity_x:.3f}')
+            self.get_logger().info(f'Sent UDP: steering={self.steering_angle:.3f}, velocity={self.velocity_x:.3f}')
             
         except Exception as e:
             self.get_logger().error(f'Failed to send UDP data: {str(e)}')

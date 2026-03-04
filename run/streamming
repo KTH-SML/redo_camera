@@ -10,8 +10,9 @@ cd "$SCRIPT_DIR"
 # List of startup commands
 CMDS=(
   "python3 ./hmi_bridge.py"
-  "./svea_stream -s -log output/output"
-  "docker compose -f ./docker-compose-datastreamer.yml up"
+  # "./svea_stream -s -log output/output"
+  "./usb_stream -s -log output/output"
+  "docker compose -f ./docker-compose-fmq-svea2.yml up"
   "python3 ./svea_bridge.py"
 )
 
@@ -90,13 +91,13 @@ start() {
   fi
   
   # Initialize v4l2 devices before starting processes
-  echo "Initializing v4l2 devices..."
-  if [[ -x "./init_v4l2" ]]; then
-    ./init_v4l2
-    echo "Device initialization completed."
-  else
-    echo "Warning: init_v4l2 script not found or not executable"
-  fi
+  # echo "Initializing v4l2 devices..."
+  # if [[ -x "./init_v4l2" ]]; then
+  #   ./init_v4l2
+  #   echo "Device initialization completed."
+  # else
+  #   echo "Warning: init_v4l2 script not found or not executable"
+  # fi
   
   local want_hmi=0
   local want_p_hmi=0

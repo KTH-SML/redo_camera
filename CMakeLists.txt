@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.30)
+cmake_minimum_required(VERSION 3.20)
 
 project(SVEA-Stream LANGUAGES CXX CUDA)
 
@@ -19,6 +19,7 @@ add_subdirectory(motion)
 add_subdirectory(camera)
 add_subdirectory(sensor)
 add_subdirectory(zed_stream)
+add_subdirectory(usb_cam_stream)
 
 add_executable(svea_stream main.cpp)
 
@@ -45,4 +46,25 @@ target_link_libraries(svea_stream
     sensor
     motion
     ${NVJPEG_LIB}
+)
+
+add_executable(usb_stream main_usb.cpp)
+
+target_include_directories(usb_stream
+    PUBLIC
+    ${OpenCV_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/camera/include
+    ${CMAKE_SOURCE_DIR}/sensor/include
+    ${CMAKE_SOURCE_DIR}/usb_cam_stream
+)
+
+target_link_libraries(usb_stream
+    usb_cam_stream
+    camera
+    sensor
+    motion
+    cuda
+    ${NVJPEG_LIB}
+    ${OpenCV_LIBS}
+    ${CUDA_LIBRARIES}
 )

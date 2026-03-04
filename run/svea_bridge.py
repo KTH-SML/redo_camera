@@ -51,21 +51,41 @@ def sendToControlTower(fleetmq, topic):
 
 def pullMetrics(fleetmq):
     sock_tx_latency = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"output/latency_{timestamp}.txt"
-    # with open(filename, "a") as f:
+
     while True:
-        metrics = fleetmq.pullMetric()
-        if metrics != None:
-            for metric in metrics:
-                print("Metric: ", metric.type, " of value ", metric.value, ", peer ", metric.peer, " at timestamp ", metric.timestamp)
-            latency = int(metrics[0].value / 2)
-            latency_bytes = struct.pack('<I', latency)
-            sock_tx_latency.sendto(latency_bytes, (UDP_IP_LOCAL, 10088))
-            now = datetime.datetime.now().isoformat(timespec="milliseconds")
-            print(f"{now}: {latency} ms ")
-            # f.write(f"{now},{latency}\n")
-        time.sleep(0.01)
+        try:
+            metrics, events = fleetmq.pullMetricsAndEvents()
+        except Exception as e:
+            print("[pullMetrics] exception:", repr(e))
+            time.sleep(0.1)
+            continue
+
+        if not metrics:
+            continue
+
+        for m in metrics:
+            print(
+                "Metric:",
+                getattr(m, "type", None),
+                "value",
+                getattr(m, "value", None),
+                "peer",
+                getattr(m, "peer", None),
+                "ts",
+                getattr(m, "timestamp", None),
+            )
+        try:
+            latency_ms = int(float(metrics[0].value) / 2)
+        except Exception as e:
+            print("[pullMetrics] failed to parse latency:", repr(e))
+            continue
+
+        latency_bytes = struct.pack('<I', latency_ms)
+        sock_tx_latency.sendto(latency_bytes, (UDP_IP_LOCAL, 10088))
+        now = datetime.datetime.now().isoformat(timespec="milliseconds")
+        print(f"{now}: {latency_ms} ms ")
+
+
 
 def signal_handler(sig, frame):
     print("Shutting down...")

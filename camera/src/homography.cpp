@@ -36,10 +36,21 @@ void Homography::save(const String &filename) const
 
 void Homography::projectPoints(const vector<Point2f> &srcPoints, vector<Point2f> &dstPoints) const
 {
-    if (H.empty())
-    {
-        cerr << "[homography] Homography matrix is empty." << endl;
+    if (H.empty()) {
+        cerr << "[homography] Matrix H is empty!" << endl;
         return;
     }
-    perspectiveTransform(srcPoints, dstPoints, H);
+    if (srcPoints.empty()) {
+        dstPoints.clear();
+        return;
+    }
+
+    try {
+        cv::perspectiveTransform(srcPoints, dstPoints, H);
+    } 
+    catch (const cv::Exception& e) {
+        cerr << "[homography] Error in perspectiveTransform: " << e.what() << endl;
+        cerr << "  srcPoints size: " << srcPoints.size() << endl;
+        cerr << "  H size: " << H.rows << "x" << H.cols << ", type: " << H.type() << endl;
+    }
 }

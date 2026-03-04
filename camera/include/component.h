@@ -7,9 +7,12 @@
 #include "fisheye.h"
 #include "homography.h"
 
-#define ORIGIN_X 959
-#define ORIGIN_Y 1079
-#define PIXELS_PER_METER 10
+// #define ORIGIN_X 959 // for zed camera
+#define ORIGIN_X 630 // for usb camera
+// #define ORIGIN_Y 1079 // for zed camera
+#define ORIGIN_Y  360// for usb camera
+// #define PIXELS_PER_METER 10 // for zed camera
+#define PIXELS_PER_METER 10*2/3.0f // for usb camera
 #define STR_WHE_RATIO 60.0f
 
 using namespace std;
@@ -58,12 +61,14 @@ protected:
     const int width;
     const int height;
     vector<Point2f> lines_;
+    cv::Scalar color_bgr_{54, 51, 226}; //BGR default blue
+    int radius_px_{6};
     const Fisheye fisheye_camera;
     const Homography homography_line;
     void project(const vector<Point2f>& lines);
 
 public:
-    LineComponent(const string& fisheye_config, const string& homography_config, int width, int height);
+    LineComponent(const string& fisheye_config, const string& homography_config, int width, int height, cv::Scalar color_bgr = cv::Scalar(54, 51, 226), int radius_px = 6);
     void operator>>(Mat& imageData) const override;
 };
 
@@ -86,6 +91,21 @@ class PredictionSurroundingsLine final : public LineComponent
 public:
     PredictionSurroundingsLine(const string& fisheye_config, const string& homography_config, int width, int height);
     void update(const float latency);
+};
+
+class TPComponent : public LineComponent
+{
+public:
+    TPComponent(const string& fisheye_config, const string& homography_config, int width, int height, cv::Scalar color_bgr = cv::Scalar(223, 22, 32), int radius_px = 3);
+    void update(const vector<pair<float, float>>& points);
+};
+
+class TrajectoryPoints : public LineComponent
+{
+    public:
+    TrajectoryPoints(const string& fisheye_config, const string& homography_config, const int width, const int height, cv::Scalar color_bgr = cv::Scalar(22, 225, 225), int radius_px = 10);
+
+    void update(const std::vector<std::pair<float, float>>& points_m);
 };
 
 class TextComponent final : public ImageComponent

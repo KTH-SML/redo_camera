@@ -48,29 +48,31 @@ else
     exit 1
 fi
 
-# 4. Check and copy binary file
-BINARY_NAME="svea_stream"
-BINARY_PATH="$BUILD_DIR/$BINARY_NAME"
+TARGET_BINARIES=("svea_stream" "usb_stream")
 
-if [ -f "$BINARY_PATH" ]; then
-    echo -e "${YELLOW}[COPY]${NC} Copying binary file to run/ directory..."
-    cp "$BINARY_PATH" "$RUN_DIR/"
-    
-    # Check if copy was successful
-    if [ -f "$RUN_DIR/$BINARY_NAME" ]; then
-        echo -e "${GREEN}[SUCCESS]${NC} Binary file successfully copied to: $RUN_DIR/$BINARY_NAME"
-        # Ensure binary file is executable
-        chmod +x "$RUN_DIR/$BINARY_NAME"
-        echo -e "${GREEN}[SUCCESS]${NC} Build completed!"
+echo -e "${YELLOW}[COPY]${NC} Copying binaries to run/ directory..."
+
+for BINARY_NAME in "${TARGET_BINARIES[@]}"; do
+    BINARY_PATH="$BUILD_DIR/$BINARY_NAME"
+
+    if [ -f "$BINARY_PATH" ]; then
+        cp "$BINARY_PATH" "$RUN_DIR/"
+        
+        # Check if copy was successful
+        if [ -f "$RUN_DIR/$BINARY_NAME" ]; then
+            echo -e "${GREEN}[SUCCESS]${NC} Copied: $BINARY_NAME -> $RUN_DIR/"
+            chmod +x "$RUN_DIR/$BINARY_NAME"
+        else
+            echo -e "${RED}[ERROR]${NC} Failed to copy $BINARY_NAME"
+            exit 1
+        fi
     else
-        echo -e "${RED}[ERROR]${NC} Failed to copy binary file"
+        echo -e "${RED}[ERROR]${NC} Binary not found: $BINARY_PATH"
         exit 1
     fi
-else
-    echo -e "${RED}[ERROR]${NC} Binary file not found: $BINARY_PATH"
-    echo -e "${YELLOW}[INFO]${NC} Checking files in build directory:"
-    ls -la "$BUILD_DIR"
-    exit 1
-fi
+done
 
-echo -e "${BLUE}[INFO]${NC} You can now run: $RUN_DIR/$BINARY_NAME"
+echo -e "${GREEN}[SUCCESS]${NC} All builds completed!"
+echo -e "${BLUE}[INFO]${NC} You can run:"
+echo -e "  - $RUN_DIR/svea_stream"
+echo -e "  - $RUN_DIR/usb_stream"

@@ -5,11 +5,11 @@
 using namespace std;
 using namespace cv;
 
-void operator+=(Mat& lhs, const vector<Point2f>& rhs)
+void draw_points(Mat& image, const vector<Point2f>& points, const Scalar& color, int radius_px, int thickness)
 {
-    for (const auto& p : rhs)
+    for (const auto& point : points)
     {
-        circle(lhs, p, 6, Scalar(54, 51, 226), FILLED);
+        circle(image, point, radius_px, color, thickness);
     }
 }
 

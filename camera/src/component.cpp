@@ -52,7 +52,7 @@ void ImageComponent::operator>>(Mat& imageData) const
 }
 
 LineComponent::LineComponent(const string& fisheye_config, const string& homography_config, const int width,
-                             const int height): width(width), height(height), lines_({}),
+                             const int height, cv::Scalar color_bgr, int radius_px): width(width), height(height), lines_({}), color_bgr_(color_bgr), radius_px_(radius_px),
                                                 fisheye_camera(Fisheye(fisheye_config)),
                                                 homography_line(Homography(homography_config))
 {
@@ -60,7 +60,7 @@ LineComponent::LineComponent(const string& fisheye_config, const string& homogra
 
 void LineComponent::operator>>(Mat& imageData) const
 {
-    imageData += lines_;
+    draw_points(imageData, lines_, color_bgr_, radius_px_, FILLED);
 }
 
 void LineComponent::project(const vector<Point2f>& lines)
@@ -136,7 +136,7 @@ void PredictionSurroundingsLine::update(const float latency)
     const double x = 0.0;
     const double y = 10.0; //test with 10 meters ahead
     const double v = 100.0; //test with 100 m/s speed
-    const double theta = 3.14159265356*0.5; //test with 90 degree
+    const double theta = 3.14159265356*0.9; //test with 90 degree
 
     Point2f origin_point = {
         static_cast<float>(ORIGIN_X + x * PIXELS_PER_METER),
@@ -148,6 +148,70 @@ void PredictionSurroundingsLine::update(const float latency)
     };
     vector<Point2f> lines = create_line_between_points(origin_point, end_point, 150);
     project(lines);
+}
+
+TPComponent::TPComponent(const string& fisheye_config, const string& homography_config, const int width,
+                             const int height, cv::Scalar color_bgr, int radius_px): LineComponent(fisheye_config, homography_config, width, height, color_bgr, radius_px)
+{
+}
+
+void TPComponent::update(const vector<pair<float, float>>& points)
+{
+    vector<Point2f> shapes;
+
+    const float radius_m = 0.25; // 10 cm radius
+    const int segments = 50; // number of segments to approximate the circle
+
+    for (const auto& point : points)
+    {
+        float world_cx = point.first;
+        float world_cy = point.second;
+
+        for (int i = 0; i <= segments; ++i)
+        {
+            float theta = 2.0f * CV_PI * float(i) / float(segments);
+
+            float wx = world_cx + radius_m * cos(theta);
+            float wy = world_cy + radius_m * sin(theta);
+
+            shapes.emplace_back(wx, wy);
+        }
+    }
+    project(shapes);
+    std::cout << "=== [DEBUG] TPComponent Projected Points ===" << std::endl;
+    
+    // lines_ は LineComponent で定義されている変換後の点を格納する変数と仮定
+    // もしアクセスできない(private)場合は、後述の「関数オーバーライド」を使ってください
+    for (size_t i = 0; i < lines_.size(); ++i) {
+        std::cout << "  pt[" << i << "]: (" 
+                  << lines_[i].x << ", " << lines_[i].y << ")" << std::endl;
+    }
+    std::cout << "===============================================" << std::endl;
+}
+
+
+TrajectoryPoints::TrajectoryPoints(const string& fisheye_config, const string& homography_config, const int width,
+                             const int height, cv::Scalar color_bgr, int radius_px): LineComponent(fisheye_config, homography_config, width, height, color_bgr, radius_px)
+{
+}
+void TrajectoryPoints::update(const std::vector<std::pair<float, float>>& points_m)
+{
+    vector<Point2f> shapes;
+    for (const auto& point : points_m)
+    {
+        float world_cx = point.first;
+        float world_cy = point.second;
+
+        shapes.emplace_back(world_cx, world_cy);
+    }
+    project(shapes);
+    std::cout << "=== [DEBUG] TPComponent Projected Points ===" << std::endl;
+    
+    for (size_t i = 0; i < lines_.size(); ++i) {
+        std::cout << "  pt[" << i << "]: (" 
+                  << lines_[i].x << ", " << lines_[i].y << ")" << std::endl;
+    }
+    std::cout << "===============================================" << std::endl;
 }
 
 TextComponent::TextComponent(const int x, const int y, const int width, const int height): ImageComponent(
